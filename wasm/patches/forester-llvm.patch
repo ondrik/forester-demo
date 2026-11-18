@@ -1,0 +1,107 @@
+diff --git a/fa/CMakeLists.txt b/fa/CMakeLists.txt
+index 88348bad..3a17e5d3 100644
+--- a/fa/CMakeLists.txt
++++ b/fa/CMakeLists.txt
+@@ -275,6 +275,7 @@ macro(test_forester_regre name_suff ext arg1)
+         SET_TESTS_PROPERTIES(${test_name} PROPERTIES COST ${cost})
+         MATH(EXPR cost "${cost} + 1")
+     endforeach()
++endmacro(test_forester_regre)
+ else() # --------------------------------------------------------------------
+ macro(test_forester_regre name_suff ext arg1)
+     foreach (num ${tests})
+@@ -314,8 +315,8 @@ macro(test_forester_regre name_suff ext arg1)
+         SET_TESTS_PROPERTIES(${test_name} PROPERTIES COST ${cost})
+         MATH(EXPR cost "${cost} + 1")
+     endforeach()
+-endif() # -------------------------------------------------------------------
+ endmacro(test_forester_regre)
++endif()
+ 
+ # default mode
+ test_forester_regre("" "" "")
+diff --git a/fa/compiler.cc b/fa/compiler.cc
+index d51ed23e..fc0356e6 100644
+--- a/fa/compiler.cc
++++ b/fa/compiler.cc
+@@ -373,6 +373,7 @@ public:
+ 		this->_table["free"]                    = builtin_e::biFree;
+ 		this->_table["abort"]                   = builtin_e::biAbort;
+ 		this->_table["___fa_get_nondet_int"]    = builtin_e::biNondet;
++		this->_table["__VERIFIER_nondet_int"]   = builtin_e::biNondet;
+ 		this->_table["___fa_error"]             = builtin_e::biError;
+ 		this->_table["__VERIFIER_plot"]         = builtin_e::biPlotHeap;
+ 		this->_table["___fa_fix"]               = builtin_e::biFix;
+@@ -578,6 +579,7 @@ protected:
+ 			// according to the type of the operand
+ 			case cl_type_e::CL_TYPE_INT:
+ 			case cl_type_e::CL_TYPE_ENUM:
++			case cl_type_e::CL_TYPE_CHAR:   // i8 constants from the LLVM front-end
+ 				append(
+ 					new FI_load_cst(&insn, dst, Data::createInt(intCstFromOperand(&op)))
+ 				);
+@@ -1278,6 +1280,18 @@ protected:
+ 	 *
+ 	 * @param[in]  insn  The corresponding instruction in the code storage
+ 	 */
++	/**
++	 * @brief  Is this the target type of an untyped pointer?
++	 *
++	 * True for void, and also for char: the LLVM front-end gives malloc() the
++	 * type i8* (char *) and casts its result to the target type later.
++	 */
++	static bool isUntypedTarget(const cl_type* type)
++	{
++		return type->code == cl_type_e::CL_TYPE_VOID ||
++			type->code == cl_type_e::CL_TYPE_CHAR;
++	}
++
+ 	void compileAssignment(const CodeStorage::Insn& insn)
+ 	{
+ 		const cl_operand& dst = insn.operands[0];
+@@ -1293,8 +1307,8 @@ protected:
+ 		size_t srcReg = cLoadOperand(dstReg, src, insn);
+ 
+ 		if (src.type->code == cl_type_e::CL_TYPE_PTR &&
+-			src.type->items[0].type->code == cl_type_e::CL_TYPE_VOID &&
+-			dst.type->items[0].type->code != cl_type_e::CL_TYPE_VOID)
++			isUntypedTarget(src.type->items[0].type) &&
++			dst.type->items[0].type->code == cl_type_e::CL_TYPE_STRUCT)
+ 		{	// in case the source is a void pointer and the destination is not;
+ 			// this happens for example at the call of malloc, when conversion from
+ 			// a void pointer to a typed pointer is done
+@@ -1412,7 +1426,7 @@ protected:
+ 			/* reg with the number of allocated bytes */ srcReg
+ 		));
+ 
+-		if (dst.type->items[0].type->code != cl_type_e::CL_TYPE_VOID)
++		if (!isUntypedTarget(dst.type->items[0].type))
+ 		{	// in case the destination pointer is not a void pointer
+ 
+ 			// build a node with proper selectors
+@@ -1969,6 +1983,8 @@ protected:
+ 						compileCmp<FI_eq>(insn);
+ 						break;
+ 					case cl_binop_e::CL_BINOP_NE:
++					// for Booleans, xor is !=; the LLVM front-end writes !x as x ^ true
++					case cl_binop_e::CL_BINOP_TRUTH_XOR:
+ 						compileCmp<FI_neq>(insn);
+ 						break;
+ 					case cl_binop_e::CL_BINOP_LT:
+diff --git a/fa/symctx.hh b/fa/symctx.hh
+index c5b6b7aa..b6127e90 100644
+--- a/fa/symctx.hh
++++ b/fa/symctx.hh
+@@ -135,7 +135,11 @@ public:   // static methods
+ 	static bool isStacked(const CodeStorage::Var& var) {
+ 		switch (var.code) {
+ 			case CodeStorage::EVar::VAR_FNC_ARG: return true;
+-			case CodeStorage::EVar::VAR_LC: return !var.name.empty();
++			// named locals, and also the pointer-typed temporaries: with the LLVM
++			// front-end, (after mem2reg) all locals are unnamed temporaries, and
++			// heap nodes referenced only from registers would count as garbage
++			case CodeStorage::EVar::VAR_LC:
++				return !var.name.empty() || var.type->code == CL_TYPE_PTR;
+ 			case CodeStorage::EVar::VAR_GL: return false;
+ 			default: return false;
+ 		}

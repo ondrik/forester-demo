@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verifying tree programs with Forester</title>
+<meta name="description" content="Memory-safety bugs in C programs with trees, skip lists, nested lists and the Deutsch-Schorr-Waite traversal, found or proved absent with Forester, a shape analyser based on forest automata.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Forester · shape analysis with forest automata</p>
+    <h1>Verifying C programs with trees,<br>skip lists and pointer reversal</h1>
+    <p class="lede">Lists are hard for verification tools, and trees are harder. A heap that holds a tree,
+    a skip list or a tree whose pointers are being rotated has no simple shape that a tool could guess.
+    <a href="https://www.fit.vut.cz/research/group/verifit/public/tools/forester/">Forester</a> represents
+    sets of such heaps by <em>forest automata</em>. It explores all executions of a C program and either
+    reports a memory error or proves that there is none, for data structures of any size.</p>
+    <div class="stats">
+      <div><span class="big">{{TOTAL}}</span><span>programs</span></div>
+      <div><span class="big bugc">{{FOUND}}</span><span>buggy versions caught</span></div>
+      <div><span class="big safec">{{PROVED}}</span><span>fixes verified</span></div>
+      <div><span class="big">≤ {{SLOWEST}} s</span><span>per program</span></div>
+    </div>
+    <p class="cta"><a class="cta-btn" href="playground/">Try Forester in your browser →</a>
+    <span>Clang and Forester compiled to WebAssembly. Your code stays on your computer.</span></p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <ol class="flow">
+      <li><b>Compile.</b> Clang translates the program to LLVM IR, which Code Listener (the front-end
+        Forester shares with <a href="https://github.com/kdudka/predator">Predator</a>) turns into a simple
+        intermediate code.</li>
+      <li><b>Execute symbolically.</b> Starting from <code>main</code>, Forester runs the program on
+        sets of heaps instead of single heaps. Unknown input, <code>__VERIFIER_nondet_int()</code> below,
+        makes it follow both branches of every condition that depends on it.</li>
+      <li><b>Represent heaps by forest automata.</b> A heap is split at its <em>cut-points</em>, the nodes
+        that are pointed to by a variable or by more than one pointer, into a tuple of trees. A tuple of
+        tree automata then stands for a possibly infinite set of such heaps. Repeated substructures, like
+        the inner lists of a list of lists, are folded into <em>boxes</em>, which Forester learns
+        automatically.</li>
+      <li><b>Abstract and check.</b> Forester abstracts the automata until the sets stop growing. On the way
+        it checks every dereference and every <code>free</code>, and it reports memory that becomes
+        unreachable (<i>garbage detected</i>). If no error is found, it reports <i>The program is SAFE</i>.</li>
+    </ol>
+
+    <figure class="abstraction">
+      <div class="scroll"><svg viewBox="0 0 760 250" role="img" aria-labelledby="fa-title">
+        <title id="fa-title">A tree with a cut-point is split into two trees, each represented by a tree automaton</title>
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="fillink"/>
+          </marker>
+        </defs>
+        <text x="0" y="16" class="hd">A heap during destroy()</text>
+        <g class="mono">
+          <text x="38" y="50">root</text>
+          <line x1="54" y1="56" x2="54" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="40" y="78" width="28" height="22" rx="3" class="node"/>
+          <line x1="48" y1="100" x2="30" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="60" y1="100" x2="98" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="12" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="88" y="132" width="28" height="22" rx="3" class="node cut"/>
+          <text x="146" y="148" class="cutlbl">n</text>
+          <line x1="142" y1="143" x2="120" y2="143" class="edge" marker-end="url(#arr)"/>
+          <line x1="96" y1="154" x2="80" y2="182" class="edge" marker-end="url(#arr)"/>
+          <line x1="108" y1="154" x2="128" y2="182" class="edge" marker-end="url(#arr)"/>
+          <rect x="66" y="186" width="28" height="22" rx="3" class="node"/>
+          <rect x="118" y="186" width="28" height="22" rx="3" class="node"/>
+          <text x="0" y="238" class="mut">n points into the middle: a cut-point</text>
+        </g>
+        <path d="M262 128 L 330 128" class="big-arrow" marker-end="url(#arr)"/>
+        <text x="296" y="114" class="cap" text-anchor="middle">split</text>
+        <text x="360" y="16" class="hd">A forest: two trees, joined by a reference</text>
+        <g class="mono">
+          <text x="398" y="50">root</text>
+          <line x1="414" y1="56" x2="414" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="400" y="78" width="28" height="22" rx="3" class="node"/>
+          <line x1="408" y1="100" x2="390" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="420" y1="100" x2="452" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="372" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="440" y="132" width="34" height="22" rx="11" class="ref"/>
+          <text x="457" y="147" text-anchor="middle" class="reftxt">2</text>
+          <text x="384" y="236" class="segtxt">tree 1</text>
+
+          <text x="560" y="50">n</text>
+          <line x1="566" y1="56" x2="566" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="552" y="78" width="28" height="22" rx="3" class="node cut"/>
+          <line x1="560" y1="100" x2="544" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="572" y1="100" x2="592" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="530" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="582" y="132" width="28" height="22" rx="3" class="node"/>
+          <text x="548" y="236" class="segtxt">tree 2</text>
+          <text x="636" y="110" class="mut">sets of trees</text>
+          <text x="636" y="128" class="mut">like these:</text>
+          <text x="636" y="146" class="mut">tree automata</text>
+        </g>
+      </svg></div>
+      <figcaption>Forester splits each heap at its cut-points into a tuple of trees that refer to each other
+      by index (the oval <i>2</i>). Sets of trees are represented by tree automata, and a tuple of tree automata,
+      a <i>forest automaton</i>, represents a set of heaps. Abstraction on the automata makes these sets
+      infinite, which is how one analysis covers trees of every size and shape. Doubly linked lists, skip lists
+      and lists of lists need <i>boxes</i>: nested forest automata used as labels, so that the outer structure
+      is again a tree.</figcaption>
+    </figure>
+
+    <p class="note">Each example below is a complete C program, and each shows what Forester printed on
+    it, line for line. Forester ends each analysis either with an error or with <i>The program is SAFE</i>.
+    Lines that Forester reports are highlighted in the code, and lines that a fix changed are marked in
+    green. The <i>note</i> line before an error is the instruction of Forester's intermediate code that failed.</p>
+    <nav class="toc">
+      <ol>
+{{TOC}}
+      </ol>
+    </nav>
+  </section>
+{{STORIES}}
+  <section class="outro">
+    <h2>Forester and Predator</h2>
+    <p>Forester and <a href="https://github.com/kdudka/predator">Predator</a> come from the same group at
+    Brno University of Technology and share their front-end. Predator is built for lists and is precise
+    down to bytes: pointer arithmetic, block sizes, <code>memset</code>. Forester trades that precision for more
+    general shapes: trees, trees with extra pointers, skip lists, and structures nested inside each other.
+    Its ideas are in the papers <a href="https://doi.org/10.1007/978-3-642-22110-1_34">Forest Automata for
+    Verification of Heap Manipulation</a> (CAV 2011) and
+    <a href="https://doi.org/10.1007/978-3-642-39799-8_52">Fully Automated Shape Analysis Based on Forest
+    Automata</a> (CAV 2013), which added the automatic learning of boxes.</p>
+    <p>Forester is a research prototype and has limits. It assumes that <code>malloc</code> succeeds (which is
+    why the programs here do not check for <code>NULL</code>). It does not support stack-allocated structures
+    whose address is taken. Some programs are beyond its abstraction: for example, destroying a tree by
+    climbing back up through parent pointers gives a false alarm, and freeing a circular doubly linked list
+    backwards did not finish in five minutes. Both are easy to try in the <a href="playground/">playground</a>.</p>
+    <p><b>About this build.</b> Forester was developed until 2020, as a GCC plug-in, in the
+    <a href="https://github.com/kdudka/predator">Predator repository</a>. The version on this page combines
+    its last revision with a current Code Listener and its LLVM front-end, with
+    <a href="{{REPO}}/tree/master/wasm/patches">small patches</a> so that Forester understands the code that clang
+    produces. All results on this page were recorded with the same WebAssembly build that runs in the
+    playground. Every program is in <a href="{{REPO}}/tree/master/cases">cases/</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Results from Forester {{FORESTER}} with Code Listener {{CL}} and clang {{LLVM}}, compiled to
+  WebAssembly. Source of this page: <a href="{{REPO}}">ondrik/forester-demo</a>.</div>
+</footer>
+</body>
+</html>

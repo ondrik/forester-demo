@@ -1,0 +1,102 @@
+{
+  "forester": "306ddb3c 2020-11-25",
+  "cl": "15eb53c6 2026-10-01",
+  "llvm": "14.0.6",
+  "cases": {
+    "list-of-lists-fixed": {
+      "command": "forester list-of-lists-fixed.c",
+      "status": 0,
+      "verdict": "safe",
+      "errors": 0,
+      "output": [],
+      "seconds": 0.256
+    },
+    "list-of-lists": {
+      "command": "forester list-of-lists.c",
+      "status": 0,
+      "verdict": "bug",
+      "errors": 1,
+      "output": [
+        "list-of-lists.c:37:9: note: free (#35)",
+        "list-of-lists.c:37:9: error: garbage detected"
+      ],
+      "seconds": 0.044
+    },
+    "skiplist-fixed": {
+      "command": "forester skiplist-fixed.c",
+      "status": 0,
+      "verdict": "safe",
+      "errors": 0,
+      "output": [],
+      "seconds": 0.31
+    },
+    "skiplist": {
+      "command": "forester skiplist.c",
+      "status": 0,
+      "verdict": "bug",
+      "errors": 1,
+      "output": [
+        "skiplist.c:55:32: note: #82 = *#81",
+        "skiplist.c:55:32: error: dereferenced value is not a valid reference [(undef)]"
+      ],
+      "seconds": 0.031
+    },
+    "tree-destroy-fixed": {
+      "command": "forester tree-destroy-fixed.c",
+      "status": 0,
+      "verdict": "safe",
+      "errors": 0,
+      "output": [],
+      "seconds": 0.229
+    },
+    "tree-destroy": {
+      "command": "forester tree-destroy.c",
+      "status": 0,
+      "verdict": "bug",
+      "errors": 1,
+      "output": [
+        "tree-destroy.c:39:19: note: #51 = *#50",
+        "tree-destroy.c:39:19: error: dereferenced value is not a valid reference [(int)0]"
+      ],
+      "seconds": 0.021
+    },
+    "tree-dsw-fixed": {
+      "command": "forester tree-dsw-fixed.c",
+      "status": 0,
+      "verdict": "safe",
+      "errors": 0,
+      "output": [],
+      "seconds": 0.26
+    },
+    "tree-dsw": {
+      "command": "forester tree-dsw.c",
+      "status": 0,
+      "verdict": "bug",
+      "errors": 1,
+      "output": [
+        "tree-dsw.c:43:17: note: *#53 = #52",
+        "tree-dsw.c:43:17: error: garbage detected"
+      ],
+      "seconds": 0.022
+    },
+    "tree-stack-fixed": {
+      "command": "forester tree-stack-fixed.c",
+      "status": 0,
+      "verdict": "safe",
+      "errors": 0,
+      "output": [],
+      "seconds": 0.065
+    },
+    "tree-stack": {
+      "command": "forester tree-stack.c",
+      "status": 0,
+      "verdict": "bug",
+      "errors": 1,
+      "output": [
+        "tree-stack.c:59:16: note: #73 = &#58-><anon_item>",
+        "tree-stack.c:59:16: error: dereferenced value is not a valid reference [(undef)]"
+      ],
+      "seconds": 0.019
+    }
+  }
+}

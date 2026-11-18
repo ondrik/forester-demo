@@ -1,0 +1,51 @@
+--- a/cl/llvm/clplug.cc
++++ b/cl/llvm/clplug.cc
+@@ -1807,16 +1807,43 @@
+     i.data.insn_unop.dst = &dst;
+     i.data.insn_unop.src = &src;
+ 
++    std::vector<PHINode *> phis;
+     for (auto& I : *phiBB) {
+         if (!isa<PHINode>(&I)) // all phi nodes
+             break;
++        phis.push_back(cast<PHINode>(&I));
++    }
+ 
+-        findLocation(&I, &i.loc); 
+-
+-        handleOperand(cast<PHINode>(&I)->getIncomingValueForBlock(fromBB), &src);
+-        handleOperand(&I, &dst);
+-
++    if (phis.size() == 1) {
++        findLocation(phis[0], &i.loc);
++        handleOperand(phis[0]->getIncomingValueForBlock(fromBB), &src);
++        handleOperand(phis[0], &dst);
+         cl->insn(cl, &i);
++    } else {
++        // the phi nodes are parallel assignments: copy all incoming values
++        // first, so that a phi node does not read the new value of another one
++        // (e.g. "a = phi(b), b = phi(a)" in a loop that swaps two pointers)
++        std::vector<struct cl_operand> tmps(phis.size());
++        for (size_t k = 0; k < phis.size(); ++k) {
++            findLocation(phis[k], &i.loc);
++            handleOperand(phis[k]->getIncomingValueForBlock(fromBB), &src);
++            struct cl_operand &tmp = tmps[k];
++            std::memset(&tmp, 0, sizeof(tmp));
++            tmp.code = CL_OPERAND_VAR;
++            tmp.scope = CL_SCOPE_FUNCTION;
++            tmp.type = handleType(phis[k]->getType());
++            tmp.data.var = handleVariable(nullptr);
++            i.data.insn_unop.dst = &tmp;
++            i.data.insn_unop.src = &src;
++            cl->insn(cl, &i);
++        }
++        for (size_t k = 0; k < phis.size(); ++k) {
++            findLocation(phis[k], &i.loc);
++            handleOperand(phis[k], &dst);
++            i.data.insn_unop.dst = &dst;
++            i.data.insn_unop.src = &tmps[k];
++            cl->insn(cl, &i);
++        }
+     }
+ 
+     if (newBB) { // jump to old BB

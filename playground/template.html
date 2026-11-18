@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forester playground</title>
+<meta name="description" content="Run the Forester shape analyser on your own C programs with trees and lists, in the browser. Forester and clang are compiled to WebAssembly; your code never leaves your computer.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="playground.css">
+</head>
+<body>
+<header class="bar">
+  <div class="wrap bar-inner">
+    <div>
+      <p class="eyebrow">Forester · shape analysis with forest automata</p>
+      <h1>Playground</h1>
+    </div>
+    <a class="back" href="../">← Examples and how it works</a>
+  </div>
+</header>
+
+<main class="wrap play">
+  <p class="lede-sm">Write or paste a C program and run Forester on it. Clang and Forester are compiled to
+  WebAssembly and run in your browser, so your code never leaves your computer. The first run downloads
+  the analyser (about {{SIZE}}, cached afterwards). Use <code>__VERIFIER_nondet_int()</code> for unknown
+  input: Forester follows both outcomes of every condition that depends on it.</p>
+
+  <div class="toolbar">
+    <label class="field">Example
+      <select id="example"></select>
+    </label>
+    <label class="field">File
+      <input id="filename" value="program.c" spellcheck="false">
+    </label>
+    <div class="opts">
+      <label title="after an error, list the source lines of the path that leads to it"><input type="checkbox" data-arg="print-trace"> show the error trace <code>print-trace</code></label>
+    </div>
+    <div class="actions">
+      <button id="share" class="ghost" type="button">Copy link</button>
+      <button id="run" class="primary" type="button">Run Forester</button>
+    </div>
+  </div>
+
+  <div class="panes">
+    <div class="pane editor-pane">
+      <div class="pane-label"><span id="editor-label">program.c</span><span class="kbd">Ctrl+Enter to run</span></div>
+      <textarea id="code" spellcheck="false"></textarea>
+    </div>
+    <div class="pane out result-pane">
+      <div class="pane-label"><span id="cmdline">$ forester program.c</span><span id="timer"></span></div>
+      <div class="result-head"><span id="verdict" class="verdict idle">not run yet</span></div>
+      <pre class="term" id="output">Press “Run Forester”. Locations in the output are clickable.</pre>
+    </div>
+  </div>
+
+  <section class="notes">
+    <h2>Good to know</h2>
+    <ul>
+      <li>Forester ends with <i>The program is SAFE</i> or with the first error it finds: an invalid dereference,
+        an invalid <code>free</code>, <i>garbage detected</i> (memory that can no longer be reached: a leak), or a failed
+        <code>__VERIFIER_assert</code>. The <i>note</i> before an error is the instruction of Forester's
+        intermediate code that failed.</li>
+      <li>Forester analyses a <b>whole program</b> starting from <code>main</code>, for a 32-bit target. It assumes
+        that <code>malloc</code> succeeds. It supports pointers between heap nodes well, but not structures on the
+        stack whose address is taken, pointer arithmetic, or most of the C library.</li>
+      <li>This is Forester's last version (2020) with a current version of its front-end and
+        <a href="{{REPO}}/tree/master/wasm/patches">small patches</a> for clang's output; see the
+        <a href="../#how">main page</a>. If a construct is not supported, Forester says <i>not implemented</i>.</li>
+      <li>Some correct programs are beyond Forester's abstraction: it then reports a false alarm or does not finish.
+        <b>Stop</b> cancels the analysis.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Forester {{FORESTER}} with Code Listener {{CL}} and clang {{LLVM}}, compiled with Emscripten;
+  see <a href="{{REPO}}/tree/master/wasm">wasm/</a> for the build. Source of this page:
+  <a href="{{REPO}}">ondrik/forester-demo</a>.</div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script src="playground.js"></script>
+</body>
+</html>

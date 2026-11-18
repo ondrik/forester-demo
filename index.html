@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verifying tree programs with Forester</title>
+<meta name="description" content="Memory-safety bugs in C programs with trees, skip lists, nested lists and the Deutsch-Schorr-Waite traversal, found or proved absent with Forester, a shape analyser based on forest automata.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Forester · shape analysis with forest automata</p>
+    <h1>Verifying C programs with trees,<br>skip lists and pointer reversal</h1>
+    <p class="lede">Lists are hard for verification tools, and trees are harder. A heap that holds a tree,
+    a skip list or a tree whose pointers are being rotated has no simple shape that a tool could guess.
+    <a href="https://www.fit.vut.cz/research/group/verifit/public/tools/forester/">Forester</a> represents
+    sets of such heaps by <em>forest automata</em>. It explores all executions of a C program and either
+    reports a memory error or proves that there is none, for data structures of any size.</p>
+    <div class="stats">
+      <div><span class="big">10</span><span>programs</span></div>
+      <div><span class="big bugc">5</span><span>buggy versions caught</span></div>
+      <div><span class="big safec">5</span><span>fixes verified</span></div>
+      <div><span class="big">≤ 0.31 s</span><span>per program</span></div>
+    </div>
+    <p class="cta"><a class="cta-btn" href="playground/">Try Forester in your browser →</a>
+    <span>Clang and Forester compiled to WebAssembly. Your code stays on your computer.</span></p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <ol class="flow">
+      <li><b>Compile.</b> Clang translates the program to LLVM IR, which Code Listener (the front-end
+        Forester shares with <a href="https://github.com/kdudka/predator">Predator</a>) turns into a simple
+        intermediate code.</li>
+      <li><b>Execute symbolically.</b> Starting from <code>main</code>, Forester runs the program on
+        sets of heaps instead of single heaps. Unknown input, <code>__VERIFIER_nondet_int()</code> below,
+        makes it follow both branches of every condition that depends on it.</li>
+      <li><b>Represent heaps by forest automata.</b> A heap is split at its <em>cut-points</em>, the nodes
+        that are pointed to by a variable or by more than one pointer, into a tuple of trees. A tuple of
+        tree automata then stands for a possibly infinite set of such heaps. Repeated substructures, like
+        the inner lists of a list of lists, are folded into <em>boxes</em>, which Forester learns
+        automatically.</li>
+      <li><b>Abstract and check.</b> Forester abstracts the automata until the sets stop growing. On the way
+        it checks every dereference and every <code>free</code>, and it reports memory that becomes
+        unreachable (<i>garbage detected</i>). If no error is found, it reports <i>The program is SAFE</i>.</li>
+    </ol>
+
+    <figure class="abstraction">
+      <div class="scroll"><svg viewBox="0 0 760 250" role="img" aria-labelledby="fa-title">
+        <title id="fa-title">A tree with a cut-point is split into two trees, each represented by a tree automaton</title>
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="fillink"/>
+          </marker>
+        </defs>
+        <text x="0" y="16" class="hd">A heap during destroy()</text>
+        <g class="mono">
+          <text x="38" y="50">root</text>
+          <line x1="54" y1="56" x2="54" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="40" y="78" width="28" height="22" rx="3" class="node"/>
+          <line x1="48" y1="100" x2="30" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="60" y1="100" x2="98" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="12" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="88" y="132" width="28" height="22" rx="3" class="node cut"/>
+          <text x="146" y="148" class="cutlbl">n</text>
+          <line x1="142" y1="143" x2="120" y2="143" class="edge" marker-end="url(#arr)"/>
+          <line x1="96" y1="154" x2="80" y2="182" class="edge" marker-end="url(#arr)"/>
+          <line x1="108" y1="154" x2="128" y2="182" class="edge" marker-end="url(#arr)"/>
+          <rect x="66" y="186" width="28" height="22" rx="3" class="node"/>
+          <rect x="118" y="186" width="28" height="22" rx="3" class="node"/>
+          <text x="0" y="238" class="mut">n points into the middle: a cut-point</text>
+        </g>
+        <path d="M262 128 L 330 128" class="big-arrow" marker-end="url(#arr)"/>
+        <text x="296" y="114" class="cap" text-anchor="middle">split</text>
+        <text x="360" y="16" class="hd">A forest: two trees, joined by a reference</text>
+        <g class="mono">
+          <text x="398" y="50">root</text>
+          <line x1="414" y1="56" x2="414" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="400" y="78" width="28" height="22" rx="3" class="node"/>
+          <line x1="408" y1="100" x2="390" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="420" y1="100" x2="452" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="372" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="440" y="132" width="34" height="22" rx="11" class="ref"/>
+          <text x="457" y="147" text-anchor="middle" class="reftxt">2</text>
+          <text x="384" y="236" class="segtxt">tree 1</text>
+
+          <text x="560" y="50">n</text>
+          <line x1="566" y1="56" x2="566" y2="74" class="edge" marker-end="url(#arr)"/>
+          <rect x="552" y="78" width="28" height="22" rx="3" class="node cut"/>
+          <line x1="560" y1="100" x2="544" y2="128" class="edge" marker-end="url(#arr)"/>
+          <line x1="572" y1="100" x2="592" y2="128" class="edge" marker-end="url(#arr)"/>
+          <rect x="530" y="132" width="28" height="22" rx="3" class="node"/>
+          <rect x="582" y="132" width="28" height="22" rx="3" class="node"/>
+          <text x="548" y="236" class="segtxt">tree 2</text>
+          <text x="636" y="110" class="mut">sets of trees</text>
+          <text x="636" y="128" class="mut">like these:</text>
+          <text x="636" y="146" class="mut">tree automata</text>
+        </g>
+      </svg></div>
+      <figcaption>Forester splits each heap at its cut-points into a tuple of trees that refer to each other
+      by index (the oval <i>2</i>). Sets of trees are represented by tree automata, and a tuple of tree automata,
+      a <i>forest automaton</i>, represents a set of heaps. Abstraction on the automata makes these sets
+      infinite, which is how one analysis covers trees of every size and shape. Doubly linked lists, skip lists
+      and lists of lists need <i>boxes</i>: nested forest automata used as labels, so that the outer structure
+      is again a tree.</figcaption>
+    </figure>
+
+    <p class="note">Each example below is a complete C program, and each shows what Forester printed on
+    it, line for line. Forester ends each analysis either with an error or with <i>The program is SAFE</i>.
+    Lines that Forester reports are highlighted in the code, and lines that a fix changed are marked in
+    green. The <i>note</i> line before an error is the instruction of Forester's intermediate code that failed.</p>
+    <nav class="toc">
+      <ol>
+<li><a href="#tree-destroy">Destroying a binary tree without a stack</a> <span class="cwe">binary tree</span></li>
+<li><a href="#tree-stack">A tree and a stack together</a> <span class="cwe">tree + list</span></li>
+<li><a href="#skiplist">Inserting into a skip list</a> <span class="cwe">skip list</span></li>
+<li><a href="#list-of-lists">Freeing a list of lists</a> <span class="cwe">nested lists</span></li>
+<li><a href="#dsw">Deutsch–Schorr–Waite tree traversal</a> <span class="cwe">pointer reversal</span></li>
+      </ol>
+    </nav>
+  </section>
+
+  <section class="story" id="tree-destroy">
+    <div class="story-head">
+      <span class="cwe">binary tree</span>
+      <h2><a href="#tree-destroy">Destroying a binary tree without a stack</a></h2>
+    </div>
+    <p class="intro"><code>create()</code> grows a binary tree of unknown shape: each round of the loop
+walks down a random path and hangs a new leaf on it. <code>destroy()</code> frees the tree without
+recursion and without extra memory: it repeatedly walks down to some leaf and frees it. Forester
+has to consider trees of every size and shape.</p>
+    
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h3>Freeing a leaf</h3><span class="verdict bug">bug found</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-destroy.c</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">34</span><span class="tx"><span class="c">/* remove leaves one by one, without recursion and without a stack */</span></span></div><div class="ln"><span class="no">35</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">36</span><span class="tx">{</span></div><div class="ln"><span class="no">37</span><span class="tx">    <span class="k">while</span> (root) {</span></div><div class="ln"><span class="no">38</span><span class="tx">        <span class="k">struct</span> node *parent = <span class="k">NULL</span>, *n = root;</span></div><div class="ln err"><span class="no">39</span><span class="tx">        <span class="k">while</span> (n-&gt;left || n-&gt;right) {</span></div><div class="callout error"><span class="no"></span><span class="tx">▲ error: dereferenced value is not a valid reference [(int)0]</span></div><div class="ln"><span class="no">40</span><span class="tx">            parent = n;</span></div><div class="ln"><span class="no">41</span><span class="tx">            n = n-&gt;left ? n-&gt;left : n-&gt;right;</span></div><div class="ln"><span class="no">42</span><span class="tx">        }</span></div><div class="ln"><span class="no">43</span><span class="tx">        <span class="k">if</span> (!parent)</span></div><div class="ln"><span class="no">44</span><span class="tx">            root = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">45</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln"><span class="no">46</span><span class="tx">    }</span></div><div class="ln"><span class="no">47</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-destroy.c</span><span>0.02 s</span></div>
+        <pre class="term"><span class="loc">tree-destroy.c:39:19: </span><span class="note">note:</span> #51 = *#50
+<span class="loc">tree-destroy.c:39:19: </span><span class="error">error:</span> dereferenced value is not a valid reference [(int)0]</pre>
+      </div>
+      <p class="after">The leaf is freed, but its parent still points to it. In the next round, the
+walk down from the root follows that dangling link, and the pointer that line 39 dereferences
+is no longer valid. Forester reports it on the first tree where this happens.</p>
+      <a class="run" href="playground/#example=tree-destroy">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">53 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="c">/* a binary tree of unknown shape and size */</span>
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="c">/* walk down to a node with a free slot */</span>
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+<span class="c">/* remove leaves one by one, without recursion and without a stack */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">while</span> (root) {
+        <span class="k">struct</span> node *parent = <span class="k">NULL</span>, *n = root;
+        <span class="k">while</span> (n-&gt;left || n-&gt;right) {
+            parent = n;
+            n = n-&gt;left ? n-&gt;left : n-&gt;right;
+        }
+        <span class="k">if</span> (!parent)
+            root = <span class="k">NULL</span>;
+        <span class="f">free</span>(n);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h3>The fix: unlink the leaf from its parent</h3><span class="verdict safe">verified · the program is SAFE</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-destroy-fixed.c</span><span class="legend"><i class="add-key"></i>changed</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">34</span><span class="tx"><span class="c">/* remove leaves one by one, without recursion and without a stack */</span></span></div><div class="ln"><span class="no">35</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">36</span><span class="tx">{</span></div><div class="ln"><span class="no">37</span><span class="tx">    <span class="k">while</span> (root) {</span></div><div class="ln"><span class="no">38</span><span class="tx">        <span class="k">struct</span> node *parent = <span class="k">NULL</span>, *n = root;</span></div><div class="ln"><span class="no">39</span><span class="tx">        <span class="k">while</span> (n-&gt;left || n-&gt;right) {</span></div><div class="ln"><span class="no">40</span><span class="tx">            parent = n;</span></div><div class="ln"><span class="no">41</span><span class="tx">            n = n-&gt;left ? n-&gt;left : n-&gt;right;</span></div><div class="ln"><span class="no">42</span><span class="tx">        }</span></div><div class="ln"><span class="no">43</span><span class="tx">        <span class="k">if</span> (!parent)</span></div><div class="ln"><span class="no">44</span><span class="tx">            root = <span class="k">NULL</span>;</span></div><div class="ln add"><span class="no">45</span><span class="tx">        <span class="k">else</span> <span class="k">if</span> (parent-&gt;left == n)</span></div><div class="ln add"><span class="no">46</span><span class="tx">            parent-&gt;left = <span class="k">NULL</span>;</span></div><div class="ln add"><span class="no">47</span><span class="tx">        <span class="k">else</span></span></div><div class="ln add"><span class="no">48</span><span class="tx">            parent-&gt;right = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">49</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln"><span class="no">50</span><span class="tx">    }</span></div><div class="ln"><span class="no">51</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-destroy-fixed.c</span><span>0.23 s</span></div>
+        <pre class="term"><span class="quiet">The program is SAFE.</span></pre>
+      </div>
+      <p class="after">With the link cleared, the parent becomes a leaf itself, and the loop frees
+the tree bottom-up. <i>The program is SAFE</i>: no invalid dereference and no garbage, for trees
+of any shape.</p>
+      <a class="run" href="playground/#example=tree-destroy-fixed">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">57 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="c">/* a binary tree of unknown shape and size */</span>
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="c">/* walk down to a node with a free slot */</span>
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+<span class="c">/* remove leaves one by one, without recursion and without a stack */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">while</span> (root) {
+        <span class="k">struct</span> node *parent = <span class="k">NULL</span>, *n = root;
+        <span class="k">while</span> (n-&gt;left || n-&gt;right) {
+            parent = n;
+            n = n-&gt;left ? n-&gt;left : n-&gt;right;
+        }
+        <span class="k">if</span> (!parent)
+            root = <span class="k">NULL</span>;
+        <span class="k">else</span> <span class="k">if</span> (parent-&gt;left == n)
+            parent-&gt;left = <span class="k">NULL</span>;
+        <span class="k">else</span>
+            parent-&gt;right = <span class="k">NULL</span>;
+        <span class="f">free</span>(n);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="story" id="tree-stack">
+    <div class="story-head">
+      <span class="cwe">tree + list</span>
+      <h2><a href="#tree-stack">A tree and a stack together</a></h2>
+    </div>
+    <p class="intro">A common way to avoid recursion: keep the nodes still to be visited on an explicit
+stack, here a singly linked list of items that point into the tree. The heap now holds two
+different structures that point into each other.</p>
+    
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h3>Freeing the node too early</h3><span class="verdict bug">bug found</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-stack.c</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">46</span><span class="tx"><span class="c">/* depth-first destruction with an explicit stack */</span></span></div><div class="ln"><span class="no">47</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">48</span><span class="tx">{</span></div><div class="ln"><span class="no">49</span><span class="tx">    <span class="k">struct</span> item *stack = push(<span class="k">NULL</span>, root);</span></div><div class="ln"><span class="no">50</span><span class="tx">    <span class="k">while</span> (stack) {</span></div><div class="ln"><span class="no">51</span><span class="tx">        <span class="k">struct</span> item *top = stack;</span></div><div class="ln"><span class="no">52</span><span class="tx">        <span class="k">struct</span> node *n = top-&gt;node;</span></div><div class="ln"><span class="no">53</span><span class="tx">        stack = top-&gt;next;</span></div><div class="ln"><span class="no">54</span><span class="tx">        <span class="f">free</span>(top);</span></div><div class="ln"><span class="no">55</span><span class="tx"> </span></div><div class="ln"><span class="no">56</span><span class="tx">        <span class="k">if</span> (n-&gt;left)</span></div><div class="ln"><span class="no">57</span><span class="tx">            stack = push(stack, n-&gt;left);</span></div><div class="ln"><span class="no">58</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln err"><span class="no">59</span><span class="tx">        <span class="k">if</span> (n-&gt;right)</span></div><div class="callout error"><span class="no"></span><span class="tx">▲ error: dereferenced value is not a valid reference [(undef)]</span></div><div class="ln"><span class="no">60</span><span class="tx">            stack = push(stack, n-&gt;right);</span></div><div class="ln"><span class="no">61</span><span class="tx">    }</span></div><div class="ln"><span class="no">62</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-stack.c</span><span>0.02 s</span></div>
+        <pre class="term"><span class="loc">tree-stack.c:59:16: </span><span class="note">note:</span> #73 = &amp;#58-&gt;&lt;anon_item&gt;
+<span class="loc">tree-stack.c:59:16: </span><span class="error">error:</span> dereferenced value is not a valid reference [(undef)]</pre>
+      </div>
+      <p class="after">The node is freed between pushing its two children, so line 59 reads
+<code>n-&gt;right</code> from freed memory. The bug needs a node with a right child, and
+Forester finds one.</p>
+      <a class="run" href="playground/#example=tree-stack">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">68 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="c">/* a stack of tree nodes, as a singly linked list */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+    <span class="k">struct</span> node *node;
+};
+
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+<span class="k">struct</span> item *push(<span class="k">struct</span> item *stack, <span class="k">struct</span> node *node)
+{
+    <span class="k">struct</span> item *it = <span class="f">malloc</span>(<span class="k">sizeof</span> *it);
+    it-&gt;next = stack;
+    it-&gt;node = node;
+    <span class="k">return</span> it;
+}
+
+<span class="c">/* depth-first destruction with an explicit stack */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> item *stack = push(<span class="k">NULL</span>, root);
+    <span class="k">while</span> (stack) {
+        <span class="k">struct</span> item *top = stack;
+        <span class="k">struct</span> node *n = top-&gt;node;
+        stack = top-&gt;next;
+        <span class="f">free</span>(top);
+
+        <span class="k">if</span> (n-&gt;left)
+            stack = push(stack, n-&gt;left);
+        <span class="f">free</span>(n);
+        <span class="k">if</span> (n-&gt;right)
+            stack = push(stack, n-&gt;right);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h3>The fix: push both children first</h3><span class="verdict safe">verified · the program is SAFE</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-stack-fixed.c</span><span class="legend"><i class="add-key"></i>changed</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">46</span><span class="tx"><span class="c">/* depth-first destruction with an explicit stack */</span></span></div><div class="ln"><span class="no">47</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">48</span><span class="tx">{</span></div><div class="ln"><span class="no">49</span><span class="tx">    <span class="k">struct</span> item *stack = push(<span class="k">NULL</span>, root);</span></div><div class="ln"><span class="no">50</span><span class="tx">    <span class="k">while</span> (stack) {</span></div><div class="ln"><span class="no">51</span><span class="tx">        <span class="k">struct</span> item *top = stack;</span></div><div class="ln"><span class="no">52</span><span class="tx">        <span class="k">struct</span> node *n = top-&gt;node;</span></div><div class="ln"><span class="no">53</span><span class="tx">        stack = top-&gt;next;</span></div><div class="ln"><span class="no">54</span><span class="tx">        <span class="f">free</span>(top);</span></div><div class="ln"><span class="no">55</span><span class="tx"> </span></div><div class="ln"><span class="no">56</span><span class="tx">        <span class="k">if</span> (n-&gt;left)</span></div><div class="ln"><span class="no">57</span><span class="tx">            stack = push(stack, n-&gt;left);</span></div><div class="ln"><span class="no">58</span><span class="tx">        <span class="k">if</span> (n-&gt;right)</span></div><div class="ln"><span class="no">59</span><span class="tx">            stack = push(stack, n-&gt;right);</span></div><div class="ln add"><span class="no">60</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln"><span class="no">61</span><span class="tx">    }</span></div><div class="ln"><span class="no">62</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-stack-fixed.c</span><span>0.07 s</span></div>
+        <pre class="term"><span class="quiet">The program is SAFE.</span></pre>
+      </div>
+      <p class="after">Both children are on the stack before <code>free(n)</code>. Forester
+verifies the combination of the tree and the list of stack items.</p>
+      <a class="run" href="playground/#example=tree-stack-fixed">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">68 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="c">/* a stack of tree nodes, as a singly linked list */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+    <span class="k">struct</span> node *node;
+};
+
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+<span class="k">struct</span> item *push(<span class="k">struct</span> item *stack, <span class="k">struct</span> node *node)
+{
+    <span class="k">struct</span> item *it = <span class="f">malloc</span>(<span class="k">sizeof</span> *it);
+    it-&gt;next = stack;
+    it-&gt;node = node;
+    <span class="k">return</span> it;
+}
+
+<span class="c">/* depth-first destruction with an explicit stack */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> item *stack = push(<span class="k">NULL</span>, root);
+    <span class="k">while</span> (stack) {
+        <span class="k">struct</span> item *top = stack;
+        <span class="k">struct</span> node *n = top-&gt;node;
+        stack = top-&gt;next;
+        <span class="f">free</span>(top);
+
+        <span class="k">if</span> (n-&gt;left)
+            stack = push(stack, n-&gt;left);
+        <span class="k">if</span> (n-&gt;right)
+            stack = push(stack, n-&gt;right);
+        <span class="f">free</span>(n);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="story" id="skiplist">
+    <div class="story-head">
+      <span class="cwe">skip list</span>
+      <h2><a href="#skiplist">Inserting into a skip list</a></h2>
+    </div>
+    <p class="intro">A skip list keeps its nodes on several linked levels. Every node is on level 1,
+and some are also on level 2, so a search can skip ahead. Each level is an ordinary list, but the
+levels share their nodes, so the heap is neither a list nor a tree. <code>insert()</code> adds a
+node at an arbitrary position with an arbitrary height.</p>
+    
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h3>Tall nodes only on the upper level</h3><span class="verdict bug">bug found</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/skiplist.c</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">26</span><span class="tx"><span class="c">/* insert a node at an arbitrary position, with an arbitrary height */</span></span></div><div class="ln"><span class="no">27</span><span class="tx"><span class="k">void</span> insert(<span class="k">struct</span> skiplist *sl)</span></div><div class="ln"><span class="no">28</span><span class="tx">{</span></div><div class="ln"><span class="no">29</span><span class="tx">    <span class="c">/* find the predecessors on both levels */</span></span></div><div class="ln"><span class="no">30</span><span class="tx">    <span class="k">struct</span> node *pred2 = sl-&gt;head;</span></div><div class="ln"><span class="no">31</span><span class="tx">    <span class="k">while</span> (pred2-&gt;next2 != sl-&gt;tail &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())</span></div><div class="ln"><span class="no">32</span><span class="tx">        pred2 = pred2-&gt;next2;</span></div><div class="ln"><span class="no">33</span><span class="tx">    <span class="k">struct</span> node *pred1 = pred2;</span></div><div class="ln"><span class="no">34</span><span class="tx">    <span class="k">while</span> (pred1-&gt;next1 != pred2-&gt;next2 &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())</span></div><div class="ln"><span class="no">35</span><span class="tx">        pred1 = pred1-&gt;next1;</span></div><div class="ln"><span class="no">36</span><span class="tx"> </span></div><div class="ln"><span class="no">37</span><span class="tx">    <span class="k">struct</span> node *n = <span class="f">malloc</span>(<span class="k">sizeof</span> *n);</span></div><div class="ln"><span class="no">38</span><span class="tx">    <span class="k">if</span> (<span class="f">__VERIFIER_nondet_int</span>()) {</span></div><div class="ln"><span class="no">39</span><span class="tx">        <span class="c">/* a tall node: on both levels */</span></span></div><div class="ln"><span class="no">40</span><span class="tx">        n-&gt;next2 = pred2-&gt;next2;</span></div><div class="ln"><span class="no">41</span><span class="tx">        pred2-&gt;next2 = n;</span></div><div class="ln"><span class="no">42</span><span class="tx">    } <span class="k">else</span> {</span></div><div class="ln"><span class="no">43</span><span class="tx">        <span class="c">/* a short node: on level 1 only */</span></span></div><div class="ln"><span class="no">44</span><span class="tx">        n-&gt;next2 = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">45</span><span class="tx">        n-&gt;next1 = pred1-&gt;next1;</span></div><div class="ln"><span class="no">46</span><span class="tx">        pred1-&gt;next1 = n;</span></div><div class="ln"><span class="no">47</span><span class="tx">    }</span></div><div class="ln"><span class="no">48</span><span class="tx">}</span></div><div class="ln"><span class="no">49</span><span class="tx"> </span></div><div class="ln"><span class="no">50</span><span class="tx"><span class="c">/* every node is on level 1, so it is enough to walk that level */</span></span></div><div class="ln"><span class="no">51</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> skiplist *sl)</span></div><div class="ln"><span class="no">52</span><span class="tx">{</span></div><div class="ln"><span class="no">53</span><span class="tx">    <span class="k">struct</span> node *n = sl-&gt;head;</span></div><div class="ln"><span class="no">54</span><span class="tx">    <span class="k">while</span> (n) {</span></div><div class="ln err"><span class="no">55</span><span class="tx">        <span class="k">struct</span> node *next = n-&gt;next1;</span></div><div class="callout error"><span class="no"></span><span class="tx">▲ error: dereferenced value is not a valid reference [(undef)]</span></div><div class="ln"><span class="no">56</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln"><span class="no">57</span><span class="tx">        n = next;</span></div><div class="ln"><span class="no">58</span><span class="tx">    }</span></div><div class="ln"><span class="no">59</span><span class="tx">    <span class="f">free</span>(sl);</span></div><div class="ln"><span class="no">60</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester skiplist.c</span><span>0.03 s</span></div>
+        <pre class="term"><span class="loc">skiplist.c:55:32: </span><span class="note">note:</span> #82 = *#81
+<span class="loc">skiplist.c:55:32: </span><span class="error">error:</span> dereferenced value is not a valid reference [(undef)]</pre>
+      </div>
+      <p class="after">The tall nodes are linked into level 2 but not into level 1, and their
+<code>next1</code> is never set. Forester reports a run in which line 55 reads such an
+uninitialised <code>next1</code>. Even without that, <code>destroy()</code> walks level 1 only
+and would leak the tall nodes.</p>
+      <a class="run" href="playground/#example=skiplist">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">69 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="c">/* a two-level skip list: every node is on level 1, some also on level 2 */</span>
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *next1;
+    <span class="k">struct</span> node *next2;
+};
+
+<span class="k">struct</span> skiplist {
+    <span class="k">struct</span> node *head;
+    <span class="k">struct</span> node *tail;
+};
+
+<span class="k">struct</span> skiplist *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> skiplist *sl = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl);
+    sl-&gt;head = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl-&gt;head);
+    sl-&gt;tail = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl-&gt;tail);
+    sl-&gt;head-&gt;next1 = sl-&gt;head-&gt;next2 = sl-&gt;tail;
+    sl-&gt;tail-&gt;next1 = sl-&gt;tail-&gt;next2 = <span class="k">NULL</span>;
+    <span class="k">return</span> sl;
+}
+
+<span class="c">/* insert a node at an arbitrary position, with an arbitrary height */</span>
+<span class="k">void</span> insert(<span class="k">struct</span> skiplist *sl)
+{
+    <span class="c">/* find the predecessors on both levels */</span>
+    <span class="k">struct</span> node *pred2 = sl-&gt;head;
+    <span class="k">while</span> (pred2-&gt;next2 != sl-&gt;tail &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())
+        pred2 = pred2-&gt;next2;
+    <span class="k">struct</span> node *pred1 = pred2;
+    <span class="k">while</span> (pred1-&gt;next1 != pred2-&gt;next2 &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())
+        pred1 = pred1-&gt;next1;
+
+    <span class="k">struct</span> node *n = <span class="f">malloc</span>(<span class="k">sizeof</span> *n);
+    <span class="k">if</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="c">/* a tall node: on both levels */</span>
+        n-&gt;next2 = pred2-&gt;next2;
+        pred2-&gt;next2 = n;
+    } <span class="k">else</span> {
+        <span class="c">/* a short node: on level 1 only */</span>
+        n-&gt;next2 = <span class="k">NULL</span>;
+        n-&gt;next1 = pred1-&gt;next1;
+        pred1-&gt;next1 = n;
+    }
+}
+
+<span class="c">/* every node is on level 1, so it is enough to walk that level */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> skiplist *sl)
+{
+    <span class="k">struct</span> node *n = sl-&gt;head;
+    <span class="k">while</span> (n) {
+        <span class="k">struct</span> node *next = n-&gt;next1;
+        <span class="f">free</span>(n);
+        n = next;
+    }
+    <span class="f">free</span>(sl);
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    <span class="k">struct</span> skiplist *sl = create();
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>())
+        insert(sl);
+    destroy(sl);
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h3>The fix: every node on level 1</h3><span class="verdict safe">verified · the program is SAFE</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/skiplist-fixed.c</span><span class="legend"><i class="add-key"></i>changed</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">26</span><span class="tx"><span class="c">/* insert a node at an arbitrary position, with an arbitrary height */</span></span></div><div class="ln"><span class="no">27</span><span class="tx"><span class="k">void</span> insert(<span class="k">struct</span> skiplist *sl)</span></div><div class="ln"><span class="no">28</span><span class="tx">{</span></div><div class="ln"><span class="no">29</span><span class="tx">    <span class="c">/* find the predecessors on both levels */</span></span></div><div class="ln"><span class="no">30</span><span class="tx">    <span class="k">struct</span> node *pred2 = sl-&gt;head;</span></div><div class="ln"><span class="no">31</span><span class="tx">    <span class="k">while</span> (pred2-&gt;next2 != sl-&gt;tail &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())</span></div><div class="ln"><span class="no">32</span><span class="tx">        pred2 = pred2-&gt;next2;</span></div><div class="ln"><span class="no">33</span><span class="tx">    <span class="k">struct</span> node *pred1 = pred2;</span></div><div class="ln"><span class="no">34</span><span class="tx">    <span class="k">while</span> (pred1-&gt;next1 != pred2-&gt;next2 &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())</span></div><div class="ln"><span class="no">35</span><span class="tx">        pred1 = pred1-&gt;next1;</span></div><div class="ln"><span class="no">36</span><span class="tx"> </span></div><div class="ln"><span class="no">37</span><span class="tx">    <span class="k">struct</span> node *n = <span class="f">malloc</span>(<span class="k">sizeof</span> *n);</span></div><div class="ln add"><span class="no">38</span><span class="tx">    n-&gt;next1 = pred1-&gt;next1;</span></div><div class="ln add"><span class="no">39</span><span class="tx">    pred1-&gt;next1 = n;</span></div><div class="ln"><span class="no">40</span><span class="tx">    <span class="k">if</span> (<span class="f">__VERIFIER_nondet_int</span>()) {</span></div><div class="ln add"><span class="no">41</span><span class="tx">        <span class="c">/* a tall node: also on level 2 */</span></span></div><div class="ln"><span class="no">42</span><span class="tx">        n-&gt;next2 = pred2-&gt;next2;</span></div><div class="ln"><span class="no">43</span><span class="tx">        pred2-&gt;next2 = n;</span></div><div class="ln"><span class="no">44</span><span class="tx">    } <span class="k">else</span> {</span></div><div class="ln"><span class="no">45</span><span class="tx">        n-&gt;next2 = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">46</span><span class="tx">    }</span></div><div class="ln"><span class="no">47</span><span class="tx">}</span></div><div class="ln"><span class="no">48</span><span class="tx"> </span></div><div class="ln"><span class="no">49</span><span class="tx"><span class="c">/* every node is on level 1, so it is enough to walk that level */</span></span></div><div class="ln"><span class="no">50</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> skiplist *sl)</span></div><div class="ln"><span class="no">51</span><span class="tx">{</span></div><div class="ln"><span class="no">52</span><span class="tx">    <span class="k">struct</span> node *n = sl-&gt;head;</span></div><div class="ln"><span class="no">53</span><span class="tx">    <span class="k">while</span> (n) {</span></div><div class="ln"><span class="no">54</span><span class="tx">        <span class="k">struct</span> node *next = n-&gt;next1;</span></div><div class="ln"><span class="no">55</span><span class="tx">        <span class="f">free</span>(n);</span></div><div class="ln"><span class="no">56</span><span class="tx">        n = next;</span></div><div class="ln"><span class="no">57</span><span class="tx">    }</span></div><div class="ln"><span class="no">58</span><span class="tx">    <span class="f">free</span>(sl);</span></div><div class="ln"><span class="no">59</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester skiplist-fixed.c</span><span>0.31 s</span></div>
+        <pre class="term"><span class="quiet">The program is SAFE.</span></pre>
+      </div>
+      <p class="after">Every new node goes to level 1, and tall ones also to level 2. Forester
+verifies the insertion and the destruction for skip lists of any length and any mix of
+heights.</p>
+      <a class="run" href="playground/#example=skiplist-fixed">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">68 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="c">/* a two-level skip list: every node is on level 1, some also on level 2 */</span>
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *next1;
+    <span class="k">struct</span> node *next2;
+};
+
+<span class="k">struct</span> skiplist {
+    <span class="k">struct</span> node *head;
+    <span class="k">struct</span> node *tail;
+};
+
+<span class="k">struct</span> skiplist *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> skiplist *sl = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl);
+    sl-&gt;head = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl-&gt;head);
+    sl-&gt;tail = <span class="f">malloc</span>(<span class="k">sizeof</span> *sl-&gt;tail);
+    sl-&gt;head-&gt;next1 = sl-&gt;head-&gt;next2 = sl-&gt;tail;
+    sl-&gt;tail-&gt;next1 = sl-&gt;tail-&gt;next2 = <span class="k">NULL</span>;
+    <span class="k">return</span> sl;
+}
+
+<span class="c">/* insert a node at an arbitrary position, with an arbitrary height */</span>
+<span class="k">void</span> insert(<span class="k">struct</span> skiplist *sl)
+{
+    <span class="c">/* find the predecessors on both levels */</span>
+    <span class="k">struct</span> node *pred2 = sl-&gt;head;
+    <span class="k">while</span> (pred2-&gt;next2 != sl-&gt;tail &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())
+        pred2 = pred2-&gt;next2;
+    <span class="k">struct</span> node *pred1 = pred2;
+    <span class="k">while</span> (pred1-&gt;next1 != pred2-&gt;next2 &amp;&amp; <span class="f">__VERIFIER_nondet_int</span>())
+        pred1 = pred1-&gt;next1;
+
+    <span class="k">struct</span> node *n = <span class="f">malloc</span>(<span class="k">sizeof</span> *n);
+    n-&gt;next1 = pred1-&gt;next1;
+    pred1-&gt;next1 = n;
+    <span class="k">if</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="c">/* a tall node: also on level 2 */</span>
+        n-&gt;next2 = pred2-&gt;next2;
+        pred2-&gt;next2 = n;
+    } <span class="k">else</span> {
+        n-&gt;next2 = <span class="k">NULL</span>;
+    }
+}
+
+<span class="c">/* every node is on level 1, so it is enough to walk that level */</span>
+<span class="k">void</span> destroy(<span class="k">struct</span> skiplist *sl)
+{
+    <span class="k">struct</span> node *n = sl-&gt;head;
+    <span class="k">while</span> (n) {
+        <span class="k">struct</span> node *next = n-&gt;next1;
+        <span class="f">free</span>(n);
+        n = next;
+    }
+    <span class="f">free</span>(sl);
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    <span class="k">struct</span> skiplist *sl = create();
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>())
+        insert(sl);
+    destroy(sl);
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="story" id="list-of-lists">
+    <div class="story-head">
+      <span class="cwe">nested lists</span>
+      <h2><a href="#list-of-lists">Freeing a list of lists</a></h2>
+    </div>
+    <p class="intro">A hash table with chaining, reduced to its shape: an outer list of buckets, each
+with its own inner list of items. The inner lists have unknown lengths, and so does the outer
+one.</p>
+    
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h3>Freeing only the buckets</h3><span class="verdict bug">bug found</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/list-of-lists.c</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">33</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> bucket *b)</span></div><div class="ln"><span class="no">34</span><span class="tx">{</span></div><div class="ln"><span class="no">35</span><span class="tx">    <span class="k">while</span> (b) {</span></div><div class="ln"><span class="no">36</span><span class="tx">        <span class="k">struct</span> bucket *next = b-&gt;next;</span></div><div class="ln err"><span class="no">37</span><span class="tx">        <span class="f">free</span>(b);</span></div><div class="callout error"><span class="no"></span><span class="tx">▲ error: garbage detected</span></div><div class="ln"><span class="no">38</span><span class="tx">        b = next;</span></div><div class="ln"><span class="no">39</span><span class="tx">    }</span></div><div class="ln"><span class="no">40</span><span class="tx">}</span></div><div class="ln"><span class="no">41</span><span class="tx"> </span></div><div class="ln"><span class="no">42</span><span class="tx"><span class="k">int</span> main(<span class="k">void</span>)</span></div><div class="ln"><span class="no">43</span><span class="tx">{</span></div><div class="ln"><span class="no">44</span><span class="tx">    destroy(create());</span></div><div class="ln"><span class="no">45</span><span class="tx">    <span class="k">return</span> 0;</span></div><div class="ln"><span class="no">46</span><span class="tx">}</span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester list-of-lists.c</span><span>0.04 s</span></div>
+        <pre class="term"><span class="loc">list-of-lists.c:37:9: </span><span class="note">note:</span> free (#35)
+<span class="loc">list-of-lists.c:37:9: </span><span class="error">error:</span> garbage detected</pre>
+      </div>
+      <p class="after"><code>free(b)</code> drops the last pointer to the bucket's items. Forester
+reports <i>garbage detected</i>: memory that is still allocated but can no longer be reached,
+that is, a leak.</p>
+      <a class="run" href="playground/#example=list-of-lists">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">46 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="c">/* an item of an inner list */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+};
+
+<span class="c">/* a node of the outer list, with its own inner list */</span>
+<span class="k">struct</span> bucket {
+    <span class="k">struct</span> bucket *next;
+    <span class="k">struct</span> item *items;
+};
+
+<span class="k">struct</span> bucket *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> bucket *buckets = <span class="k">NULL</span>;
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> bucket *b = <span class="f">malloc</span>(<span class="k">sizeof</span> *b);
+        b-&gt;items = <span class="k">NULL</span>;
+        <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+            <span class="k">struct</span> item *it = <span class="f">malloc</span>(<span class="k">sizeof</span> *it);
+            it-&gt;next = b-&gt;items;
+            b-&gt;items = it;
+        }
+        b-&gt;next = buckets;
+        buckets = b;
+    }
+    <span class="k">return</span> buckets;
+}
+
+<span class="k">void</span> destroy(<span class="k">struct</span> bucket *b)
+{
+    <span class="k">while</span> (b) {
+        <span class="k">struct</span> bucket *next = b-&gt;next;
+        <span class="f">free</span>(b);
+        b = next;
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h3>The fix: free the items first</h3><span class="verdict safe">verified · the program is SAFE</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/list-of-lists-fixed.c</span><span class="legend"><i class="add-key"></i>changed</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">33</span><span class="tx"><span class="k">void</span> destroy(<span class="k">struct</span> bucket *b)</span></div><div class="ln"><span class="no">34</span><span class="tx">{</span></div><div class="ln"><span class="no">35</span><span class="tx">    <span class="k">while</span> (b) {</span></div><div class="ln"><span class="no">36</span><span class="tx">        <span class="k">struct</span> bucket *next = b-&gt;next;</span></div><div class="ln add"><span class="no">37</span><span class="tx">        <span class="k">while</span> (b-&gt;items) {</span></div><div class="ln add"><span class="no">38</span><span class="tx">            <span class="k">struct</span> item *it = b-&gt;items;</span></div><div class="ln add"><span class="no">39</span><span class="tx">            b-&gt;items = it-&gt;next;</span></div><div class="ln add"><span class="no">40</span><span class="tx">            <span class="f">free</span>(it);</span></div><div class="ln add"><span class="no">41</span><span class="tx">        }</span></div><div class="ln"><span class="no">42</span><span class="tx">        <span class="f">free</span>(b);</span></div><div class="ln"><span class="no">43</span><span class="tx">        b = next;</span></div><div class="ln"><span class="no">44</span><span class="tx">    }</span></div><div class="ln"><span class="no">45</span><span class="tx">}</span></div><div class="ln"><span class="no">46</span><span class="tx"> </span></div><div class="ln"><span class="no">47</span><span class="tx"><span class="k">int</span> main(<span class="k">void</span>)</span></div><div class="ln"><span class="no">48</span><span class="tx">{</span></div><div class="ln"><span class="no">49</span><span class="tx">    destroy(create());</span></div><div class="ln"><span class="no">50</span><span class="tx">    <span class="k">return</span> 0;</span></div><div class="ln"><span class="no">51</span><span class="tx">}</span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester list-of-lists-fixed.c</span><span>0.26 s</span></div>
+        <pre class="term"><span class="quiet">The program is SAFE.</span></pre>
+      </div>
+      <p class="after">With the inner loop, every item is freed before its bucket. In the abstract
+heaps, Forester represents the inner lists by a <i>box</i>, a reusable automaton for a repeated
+substructure, which it finds automatically.</p>
+      <a class="run" href="playground/#example=list-of-lists-fixed">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">51 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="c">/* an item of an inner list */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+};
+
+<span class="c">/* a node of the outer list, with its own inner list */</span>
+<span class="k">struct</span> bucket {
+    <span class="k">struct</span> bucket *next;
+    <span class="k">struct</span> item *items;
+};
+
+<span class="k">struct</span> bucket *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> bucket *buckets = <span class="k">NULL</span>;
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> bucket *b = <span class="f">malloc</span>(<span class="k">sizeof</span> *b);
+        b-&gt;items = <span class="k">NULL</span>;
+        <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+            <span class="k">struct</span> item *it = <span class="f">malloc</span>(<span class="k">sizeof</span> *it);
+            it-&gt;next = b-&gt;items;
+            b-&gt;items = it;
+        }
+        b-&gt;next = buckets;
+        buckets = b;
+    }
+    <span class="k">return</span> buckets;
+}
+
+<span class="k">void</span> destroy(<span class="k">struct</span> bucket *b)
+{
+    <span class="k">while</span> (b) {
+        <span class="k">struct</span> bucket *next = b-&gt;next;
+        <span class="k">while</span> (b-&gt;items) {
+            <span class="k">struct</span> item *it = b-&gt;items;
+            b-&gt;items = it-&gt;next;
+            <span class="f">free</span>(it);
+        }
+        <span class="f">free</span>(b);
+        b = next;
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    destroy(create());
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="story" id="dsw">
+    <div class="story-head">
+      <span class="cwe">pointer reversal</span>
+      <h2><a href="#dsw">Deutsch–Schorr–Waite tree traversal</a></h2>
+    </div>
+    <p class="intro">The Deutsch–Schorr–Waite algorithm visits every node of a tree without a stack
+and without recursion: it rotates the child pointers of each node so that they temporarily
+point back up. After three visits, each node has its original children again. Garbage collectors
+use it because it needs no extra memory. It is also a classic challenge for verification
+tools, because during the traversal the heap does not look like a tree at all. This is the
+variant by Lindstrom, with a sentinel node.</p>
+    
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h3>One assignment out of order</h3><span class="verdict bug">bug found</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-dsw.c</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">32</span><span class="tx">/*</span></div><div class="ln"><span class="no">33</span><span class="tx"> * Lindstrom&#x27;s variant of the Deutsch-Schorr-Waite traversal: visits every node</span></div><div class="ln"><span class="no">34</span><span class="tx"> * without a stack, by rotating the child pointers.  After three visits, each</span></div><div class="ln"><span class="no">35</span><span class="tx"> * node has its original children back.</span></div><div class="ln"><span class="no">36</span><span class="tx"> */</span></div><div class="ln"><span class="no">37</span><span class="tx"><span class="k">void</span> traverse(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">38</span><span class="tx">{</span></div><div class="ln"><span class="no">39</span><span class="tx">    <span class="k">struct</span> node *sentinel = <span class="f">malloc</span>(<span class="k">sizeof</span> *sentinel);</span></div><div class="ln"><span class="no">40</span><span class="tx">    <span class="k">struct</span> node *n = root, *pred = sentinel;</span></div><div class="ln"><span class="no">41</span><span class="tx"> </span></div><div class="ln"><span class="no">42</span><span class="tx">    <span class="k">while</span> (n != sentinel) {</span></div><div class="ln err"><span class="no">43</span><span class="tx">        n-&gt;left = n-&gt;right;</span></div><div class="callout error"><span class="no"></span><span class="tx">▲ error: garbage detected</span></div><div class="ln"><span class="no">44</span><span class="tx">        <span class="k">struct</span> node *succ = n-&gt;left;</span></div><div class="ln"><span class="no">45</span><span class="tx">        n-&gt;right = pred;</span></div><div class="ln"><span class="no">46</span><span class="tx">        pred = n;</span></div><div class="ln"><span class="no">47</span><span class="tx">        n = succ;</span></div><div class="ln"><span class="no">48</span><span class="tx">        <span class="k">if</span> (!n) {</span></div><div class="ln"><span class="no">49</span><span class="tx">            n = pred;</span></div><div class="ln"><span class="no">50</span><span class="tx">            pred = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">51</span><span class="tx">        }</span></div><div class="ln"><span class="no">52</span><span class="tx">    }</span></div><div class="ln"><span class="no">53</span><span class="tx">    <span class="f">free</span>(sentinel);</span></div><div class="ln"><span class="no">54</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-dsw.c</span><span>0.02 s</span></div>
+        <pre class="term"><span class="loc">tree-dsw.c:43:17: </span><span class="note">note:</span> *#53 = #52
+<span class="loc">tree-dsw.c:43:17: </span><span class="error">error:</span> garbage detected</pre>
+      </div>
+      <p class="after">Line 43 overwrites <code>n-&gt;left</code> before it is saved in
+<code>succ</code>, so the left subtree loses its only pointer as soon as it is not empty:
+<i>garbage detected</i>.</p>
+      <a class="run" href="playground/#example=tree-dsw">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">94 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+/*
+ * Lindstrom&#x27;s variant of the Deutsch-Schorr-Waite traversal: visits every node
+ * without a stack, by rotating the child pointers.  After three visits, each
+ * node has its original children back.
+ */
+<span class="k">void</span> traverse(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> node *sentinel = <span class="f">malloc</span>(<span class="k">sizeof</span> *sentinel);
+    <span class="k">struct</span> node *n = root, *pred = sentinel;
+
+    <span class="k">while</span> (n != sentinel) {
+        n-&gt;left = n-&gt;right;
+        <span class="k">struct</span> node *succ = n-&gt;left;
+        n-&gt;right = pred;
+        pred = n;
+        n = succ;
+        <span class="k">if</span> (!n) {
+            n = pred;
+            pred = <span class="k">NULL</span>;
+        }
+    }
+    <span class="f">free</span>(sentinel);
+}
+
+<span class="c">/* destroys the tree with an explicit stack */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+    <span class="k">struct</span> node *node;
+};
+
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> item *stack = <span class="f">malloc</span>(<span class="k">sizeof</span> *stack);
+    stack-&gt;next = <span class="k">NULL</span>;
+    stack-&gt;node = root;
+    <span class="k">while</span> (stack) {
+        <span class="k">struct</span> item *top = stack;
+        <span class="k">struct</span> node *n = top-&gt;node;
+        stack = top-&gt;next;
+        <span class="f">free</span>(top);
+        <span class="k">if</span> (n-&gt;left) {
+            top = <span class="f">malloc</span>(<span class="k">sizeof</span> *top);
+            top-&gt;next = stack;
+            top-&gt;node = n-&gt;left;
+            stack = top;
+        }
+        <span class="k">if</span> (n-&gt;right) {
+            top = <span class="f">malloc</span>(<span class="k">sizeof</span> *top);
+            top-&gt;next = stack;
+            top-&gt;node = n-&gt;right;
+            stack = top;
+        }
+        <span class="f">free</span>(n);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = create();
+    traverse(root);
+    destroy(root);
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h3>Save, rotate, move</h3><span class="verdict safe">verified · the program is SAFE</span></div>
+      <div class="pane">
+        <div class="pane-label"><span>cases/tree-dsw-fixed.c</span><span class="legend"><i class="add-key"></i>changed</span></div>
+        <div class="code"><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div><div class="ln"><span class="no">32</span><span class="tx">/*</span></div><div class="ln"><span class="no">33</span><span class="tx"> * Lindstrom&#x27;s variant of the Deutsch-Schorr-Waite traversal: visits every node</span></div><div class="ln"><span class="no">34</span><span class="tx"> * without a stack, by rotating the child pointers.  After three visits, each</span></div><div class="ln"><span class="no">35</span><span class="tx"> * node has its original children back.</span></div><div class="ln"><span class="no">36</span><span class="tx"> */</span></div><div class="ln"><span class="no">37</span><span class="tx"><span class="k">void</span> traverse(<span class="k">struct</span> node *root)</span></div><div class="ln"><span class="no">38</span><span class="tx">{</span></div><div class="ln"><span class="no">39</span><span class="tx">    <span class="k">struct</span> node *sentinel = <span class="f">malloc</span>(<span class="k">sizeof</span> *sentinel);</span></div><div class="ln"><span class="no">40</span><span class="tx">    <span class="k">struct</span> node *n = root, *pred = sentinel;</span></div><div class="ln"><span class="no">41</span><span class="tx"> </span></div><div class="ln"><span class="no">42</span><span class="tx">    <span class="k">while</span> (n != sentinel) {</span></div><div class="ln add"><span class="no">43</span><span class="tx">        <span class="k">struct</span> node *succ = n-&gt;left;</span></div><div class="ln"><span class="no">44</span><span class="tx">        n-&gt;left = n-&gt;right;</span></div><div class="ln"><span class="no">45</span><span class="tx">        n-&gt;right = pred;</span></div><div class="ln"><span class="no">46</span><span class="tx">        pred = n;</span></div><div class="ln"><span class="no">47</span><span class="tx">        n = succ;</span></div><div class="ln"><span class="no">48</span><span class="tx">        <span class="k">if</span> (!n) {</span></div><div class="ln"><span class="no">49</span><span class="tx">            n = pred;</span></div><div class="ln"><span class="no">50</span><span class="tx">            pred = <span class="k">NULL</span>;</span></div><div class="ln"><span class="no">51</span><span class="tx">        }</span></div><div class="ln"><span class="no">52</span><span class="tx">    }</span></div><div class="ln"><span class="no">53</span><span class="tx">    <span class="f">free</span>(sentinel);</span></div><div class="ln"><span class="no">54</span><span class="tx">}</span></div><div class="ln gap"><span class="no">⋮</span><span class="tx"></span></div></div>
+      </div>
+      <div class="pane out">
+        <div class="pane-label"><span>$ forester tree-dsw-fixed.c</span><span>0.26 s</span></div>
+        <pre class="term"><span class="quiet">The program is SAFE.</span></pre>
+      </div>
+      <p class="after">The correct rotation. Forester verifies the whole program: building a tree
+of any shape, the traversal with its reversed pointers, and the destruction with an explicit
+stack.</p>
+      <a class="run" href="playground/#example=tree-dsw-fixed">Open in the playground ↗</a>
+      <details>
+        <summary>Whole program <span class="file">94 lines</span></summary>
+        <pre class="full"><code><span class="k">#include</span> &lt;stdlib.h&gt;
+
+<span class="k">extern</span> <span class="k">int</span> <span class="f">__VERIFIER_nondet_int</span>(<span class="k">void</span>);
+
+<span class="k">struct</span> node {
+    <span class="k">struct</span> node *left;
+    <span class="k">struct</span> node *right;
+};
+
+<span class="k">struct</span> node *create(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = <span class="f">malloc</span>(<span class="k">sizeof</span> *root);
+    root-&gt;left = <span class="k">NULL</span>;
+    root-&gt;right = <span class="k">NULL</span>;
+
+    <span class="k">while</span> (<span class="f">__VERIFIER_nondet_int</span>()) {
+        <span class="k">struct</span> node *n = root;
+        <span class="k">while</span> (n-&gt;left &amp;&amp; n-&gt;right)
+            n = <span class="f">__VERIFIER_nondet_int</span>() ? n-&gt;left : n-&gt;right;
+
+        <span class="k">struct</span> node *leaf = <span class="f">malloc</span>(<span class="k">sizeof</span> *leaf);
+        leaf-&gt;left = <span class="k">NULL</span>;
+        leaf-&gt;right = <span class="k">NULL</span>;
+        <span class="k">if</span> (!n-&gt;left)
+            n-&gt;left = leaf;
+        <span class="k">else</span>
+            n-&gt;right = leaf;
+    }
+    <span class="k">return</span> root;
+}
+
+/*
+ * Lindstrom&#x27;s variant of the Deutsch-Schorr-Waite traversal: visits every node
+ * without a stack, by rotating the child pointers.  After three visits, each
+ * node has its original children back.
+ */
+<span class="k">void</span> traverse(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> node *sentinel = <span class="f">malloc</span>(<span class="k">sizeof</span> *sentinel);
+    <span class="k">struct</span> node *n = root, *pred = sentinel;
+
+    <span class="k">while</span> (n != sentinel) {
+        <span class="k">struct</span> node *succ = n-&gt;left;
+        n-&gt;left = n-&gt;right;
+        n-&gt;right = pred;
+        pred = n;
+        n = succ;
+        <span class="k">if</span> (!n) {
+            n = pred;
+            pred = <span class="k">NULL</span>;
+        }
+    }
+    <span class="f">free</span>(sentinel);
+}
+
+<span class="c">/* destroys the tree with an explicit stack */</span>
+<span class="k">struct</span> item {
+    <span class="k">struct</span> item *next;
+    <span class="k">struct</span> node *node;
+};
+
+<span class="k">void</span> destroy(<span class="k">struct</span> node *root)
+{
+    <span class="k">struct</span> item *stack = <span class="f">malloc</span>(<span class="k">sizeof</span> *stack);
+    stack-&gt;next = <span class="k">NULL</span>;
+    stack-&gt;node = root;
+    <span class="k">while</span> (stack) {
+        <span class="k">struct</span> item *top = stack;
+        <span class="k">struct</span> node *n = top-&gt;node;
+        stack = top-&gt;next;
+        <span class="f">free</span>(top);
+        <span class="k">if</span> (n-&gt;left) {
+            top = <span class="f">malloc</span>(<span class="k">sizeof</span> *top);
+            top-&gt;next = stack;
+            top-&gt;node = n-&gt;left;
+            stack = top;
+        }
+        <span class="k">if</span> (n-&gt;right) {
+            top = <span class="f">malloc</span>(<span class="k">sizeof</span> *top);
+            top-&gt;next = stack;
+            top-&gt;node = n-&gt;right;
+            stack = top;
+        }
+        <span class="f">free</span>(n);
+    }
+}
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    <span class="k">struct</span> node *root = create();
+    traverse(root);
+    destroy(root);
+    <span class="k">return</span> 0;
+}
+</code></pre>
+      </details>
+    </div>
+  </section>
+  <section class="outro">
+    <h2>Forester and Predator</h2>
+    <p>Forester and <a href="https://github.com/kdudka/predator">Predator</a> come from the same group at
+    Brno University of Technology and share their front-end. Predator is built for lists and is precise
+    down to bytes: pointer arithmetic, block sizes, <code>memset</code>. Forester trades that precision for more
+    general shapes: trees, trees with extra pointers, skip lists, and structures nested inside each other.
+    Its ideas are in the papers <a href="https://doi.org/10.1007/978-3-642-22110-1_34">Forest Automata for
+    Verification of Heap Manipulation</a> (CAV 2011) and
+    <a href="https://doi.org/10.1007/978-3-642-39799-8_52">Fully Automated Shape Analysis Based on Forest
+    Automata</a> (CAV 2013), which added the automatic learning of boxes.</p>
+    <p>Forester is a research prototype and has limits. It assumes that <code>malloc</code> succeeds (which is
+    why the programs here do not check for <code>NULL</code>). It does not support stack-allocated structures
+    whose address is taken. Some programs are beyond its abstraction: for example, destroying a tree by
+    climbing back up through parent pointers gives a false alarm, and freeing a circular doubly linked list
+    backwards did not finish in five minutes. Both are easy to try in the <a href="playground/">playground</a>.</p>
+    <p><b>About this build.</b> Forester was developed until 2020, as a GCC plug-in, in the
+    <a href="https://github.com/kdudka/predator">Predator repository</a>. The version on this page combines
+    its last revision with a current Code Listener and its LLVM front-end, with
+    <a href="https://github.com/ondrik/forester-demo/tree/master/wasm/patches">small patches</a> so that Forester understands the code that clang
+    produces. All results on this page were recorded with the same WebAssembly build that runs in the
+    playground. Every program is in <a href="https://github.com/ondrik/forester-demo/tree/master/cases">cases/</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Results from Forester 306ddb3c 2020-11-25 with Code Listener 15eb53c6 2026-10-01 and clang 14.0.6, compiled to
+  WebAssembly. Source of this page: <a href="https://github.com/ondrik/forester-demo">ondrik/forester-demo</a>.</div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,62 @@
+[
+ {
+  "id": "tree-destroy",
+  "story": "Destroying a binary tree without a stack",
+  "label": "Freeing a leaf",
+  "args": []
+ },
+ {
+  "id": "tree-destroy-fixed",
+  "story": "Destroying a binary tree without a stack",
+  "label": "The fix: unlink the leaf from its parent",
+  "args": []
+ },
+ {
+  "id": "tree-stack",
+  "story": "A tree and a stack together",
+  "label": "Freeing the node too early",
+  "args": []
+ },
+ {
+  "id": "tree-stack-fixed",
+  "story": "A tree and a stack together",
+  "label": "The fix: push both children first",
+  "args": []
+ },
+ {
+  "id": "skiplist",
+  "story": "Inserting into a skip list",
+  "label": "Tall nodes only on the upper level",
+  "args": []
+ },
+ {
+  "id": "skiplist-fixed",
+  "story": "Inserting into a skip list",
+  "label": "The fix: every node on level 1",
+  "args": []
+ },
+ {
+  "id": "list-of-lists",
+  "story": "Freeing a list of lists",
+  "label": "Freeing only the buckets",
+  "args": []
+ },
+ {
+  "id": "list-of-lists-fixed",
+  "story": "Freeing a list of lists",
+  "label": "The fix: free the items first",
+  "args": []
+ },
+ {
+  "id": "tree-dsw",
+  "story": "Deutsch\u2013Schorr\u2013Waite tree traversal",
+  "label": "One assignment out of order",
+  "args": []
+ },
+ {
+  "id": "tree-dsw-fixed",
+  "story": "Deutsch\u2013Schorr\u2013Waite tree traversal",
+  "label": "Save, rotate, move",
+  "args": []
+ }
+]
