@@ -1,0 +1,43 @@
+Name the registers that hold C variables (after mem2reg) after those variables, so that heap plots
+and diagnostics show "n" instead of an empty name.  Code Listener takes the name from llvm.dbg.value
+and prefixes it with "~"; Forester keeps treating such registers as unnamed temporaries (a named
+local would be put into the stack frame).  The playground strips the "~" when it shows a plot.
+
+diff -ruN a2/cl/llvm/clplug.cc b/cl/llvm/clplug.cc
+--- a/cl/llvm/clplug.cc	2026-11-18 22:30:11.779796135 +0100
++++ b/cl/llvm/clplug.cc	2026-11-18 22:30:11.783796164 +0100
+@@ -1009,6 +1009,20 @@
+         findLocation(DI, &(clv->loc));
+     }
+ 
++    // a register that holds a C variable (after mem2reg): take the C name from llvm.dbg.value,
++    // prefixed by '~', which marks it as a name for diagnostics and heap plots only (the
++    // variable stays artificial)
++    if (!clv->name && (isa<Instruction>(v) || isa<Argument>(v))) {
++        SmallVector<DbgValueInst *, 2> dvs;
++        findDbgValues(dvs, v);
++        if (!dvs.empty()) {
++            std::string tmp = "~" + dvs.front()->getVariable()->getName().str();
++            char *tmpPtr = new char [tmp.length() + 1];
++            std::memcpy(tmpPtr, tmp.c_str(), tmp.length() + 1);
++            clv->name = tmpPtr;
++        }
++    }
++
+     if (isa<GlobalVariable>(v)) {
+         handleGlobalVariable(cast<GlobalVariable>(v), clv);
+     } else {
+diff -ruN a2/fa/symctx.hh b/fa/symctx.hh
+--- a/fa/symctx.hh	2026-11-18 22:30:11.781796150 +0100
++++ b/fa/symctx.hh	2026-11-18 22:30:11.785796178 +0100
+@@ -139,7 +139,9 @@
+ 			// front-end, (after mem2reg) all locals are unnamed temporaries, and
+ 			// heap nodes referenced only from registers would count as garbage
+ 			case CodeStorage::EVar::VAR_LC:
+-				return !var.name.empty() || var.type->code == CL_TYPE_PTR;
++				// (a name that starts with '~' is only a label, see cl/llvm/clplug.cc)
++				return (!var.name.empty() && var.name[0] != '~')
++					|| var.type->code == CL_TYPE_PTR;
+ 			case CodeStorage::EVar::VAR_GL: return false;
+ 			default: return false;
+ 		}

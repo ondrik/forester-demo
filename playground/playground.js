@@ -130,8 +130,12 @@ function getArgs() {
   const args = [...document.querySelectorAll("[data-arg]")].filter((c) => c.checked).map((c) => c.dataset.arg);
   return args;
 }
-function setArgs(args) {
-  for (const c of document.querySelectorAll("[data-arg]")) c.checked = args.includes(c.dataset.arg);
+// examples set the options they need, but leave the "sticky" ones (heap graphs) as they are;
+// a shared link sets all of them
+function setArgs(args, all) {
+  for (const c of document.querySelectorAll("[data-arg]")) {
+    if (all || !c.hasAttribute("data-sticky")) c.checked = args.includes(c.dataset.arg);
+  }
   updateLabels();
 }
 function safeName() {
@@ -197,7 +201,7 @@ async function fromHash() {
     try {
       editor.setValue(await unpack(params.get("code")));
       $("filename").value = params.get("file") || "program.c";
-      setArgs((params.get("args") || "").split(",").filter(Boolean));
+      setArgs((params.get("args") || "").split(",").filter(Boolean), true);
       return;
     } catch { /* fall through to the default program */ }
   }
@@ -244,6 +248,7 @@ function run() {
   if (!worker) newWorker();
   running = true;
   clearMarks();
+  HeapView.clear();
   runBtn.textContent = "Stop";
   runBtn.classList.add("stop");
   updateLabels();
@@ -282,7 +287,7 @@ function handle(msg) {
     ready = true;
     finish();
     $("timer").textContent = `${(msg.ms / 1000).toFixed(2)} s`;
-    showResult(msg.lines, msg.status);
+    showResult(msg.lines, msg.status, msg.graphs || {});
   } else if (msg.type === "failed") {
     finish();
     showFailure(msg.error);
@@ -298,29 +303,31 @@ function showFailure(text) {
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const DIAG = /^(?<file>[^:\s]+):(?<line>\d+):(?:(?<col>\d+):)? (?<kind>fatal error|error|warning|note): (?<msg>.*)$/;
-const TRACE = /^(?<file>[^:\s]+)(?::(?<line>\d+))?(?::\d+)?: note: writing memory graph to 'trace-\d+\.dot'/;
 
 // Forester's messages end with " [-fa]"; its internal log lines carry "[internal location]".
 // Keeps the verdict and internal errors (with the internal path removed), drops the rest.
+// The notes about written heap graphs become the states of the heap view.  "#58:~n" is register
+// #58, which holds the C variable n (see wasm/patches/forester-var-names.patch).
 function cleanLines(lines) {
   const out = [];
   let safe = false, internalError = false;
-  const trace = [];
-  for (let l of lines) {
-    l = l.replace(ANSI, "").replace(/ \[-fa\]$/, "");
+  const stripped = lines.map((l) => l.replace(ANSI, "").replace(/ \[-fa\]$/, "").replace(/(#\d+):~/g, "$1:"));
+  const { lines: rest, states } = HeapView.extract(stripped);
+  const trace = states.filter((s) => s.name.startsWith("trace-") && s.line).map((s) => s.line);
+  for (const l of rest) {
     if (!l) continue;
     if (/The program is SAFE\./.test(l)) { safe = true; continue; }
-    const t = l.match(TRACE);
-    if (t) { if (t.groups.line) trace.push(Number(t.groups.line)); continue; }
     if (l.includes("[internal location]")) {
       const m = l.match(/: error: (.*?) \[internal location\]/);
-      if (m && !/has detected some errors/.test(m[1])) { out.push(`forester: error: ${m[1]}`); internalError = true; }
+      // a leak found when main() returns has no location: it is a verdict, not a failure
+      if (m && /^garbage detected/.test(m[1])) out.push(`forester: error: ${m[1]} (when main returns)`);
+      else if (m && !/has detected some errors/.test(m[1])) { out.push(`forester: error: ${m[1]}`); internalError = true; }
       continue;
     }
-    if (/: (log|debug): /.test(l)) continue;
+    if (/(^|: )(log|debug): /.test(l)) continue;
     out.push(l);
   }
-  return { out, safe, internalError, trace };
+  return { out, safe, internalError, trace, states };
 }
 
 function locLink(text, line, col) {
@@ -337,8 +344,8 @@ function locLink(text, line, col) {
   return a;
 }
 
-function showResult(rawLines, status) {
-  const { out: lines, safe, internalError, trace } = cleanLines(rawLines);
+function showResult(rawLines, status, graphs) {
+  const { out: lines, safe, internalError, trace, states } = cleanLines(rawLines);
   const out = $("output");
   out.textContent = "";
   let errors = 0;
@@ -386,6 +393,7 @@ function showResult(rawLines, status) {
     });
     out.appendChild(row);
   }
+  HeapView.show(states, graphs);
   if (status === 3) {
     setVerdict("bug", "does not compile");
   } else if (status !== 0) {
@@ -403,6 +411,73 @@ function showResult(rawLines, status) {
 }
 
 runBtn.addEventListener("click", run);
+
+// ---------------------------------------------------------------------------------------------
+// Forester's heap graphs, simplified for reading
+//
+// A graph is a forest automaton: one cluster per tree automaton (TA k), in it one cluster per
+// state; ellipses are nodes (a stack frame "fnc:line", a struct, the global variables), boxes
+// below them are their fields, red boxes are data values and references to other trees.  The
+// simplified view hides the stack slots of unnamed temporaries, Forester's own slots (_pABP,
+// _retaddr), the values that only those point to, and then the clusters that became empty.
+
+const HIDDEN_FIELDS = new Set(["", "_pABP", "_retaddr", "__fake_global__"]);
+const NODE = /^\s*"([^"]+)" \[shape=(\w+), style=filled, fillcolor=(\w+), label="((?:[^"\\]|\\.)*)"\];$/;
+const EDGE = /^\s*"([^"]+)" -> "([^"]+)"/;
+
+function simplifyFA(dot) {
+  const lines = dot.split("\n");
+  const nodes = new Map(), edges = [];
+  for (const l of lines) {
+    let m = l.match(NODE);
+    if (m) { nodes.set(m[1], { shape: m[2], fill: m[3], label: m[4] }); continue; }
+    m = l.match(EDGE);
+    if (m) edges.push([m[1], m[2]]);
+  }
+  const gone = new Set();
+  for (const [id, n] of nodes) if (n.fill === "pink" && HIDDEN_FIELDS.has(n.label)) gone.add(id);
+  for (let changed = true; changed;) {
+    changed = false;
+    const live = edges.filter(([a, b]) => !gone.has(a) && !gone.has(b));
+    const hasIn = new Set(live.map((e) => e[1])), hasOut = new Set(live.map((e) => e[0]));
+    for (const [id, n] of nodes) {
+      if (gone.has(id)) continue;
+      const orphanValue = n.fill === "red" && !hasIn.has(id);
+      const emptyGlobals = n.label === "__global_vars_block" && !hasOut.has(id);
+      if (orphanValue || emptyGlobals) { gone.add(id); changed = true; }
+    }
+  }
+  // drop the lines of removed nodes and edges, then the clusters left without nodes
+  const stack = [[]];
+  for (const l of lines) {
+    let m = l.match(NODE);
+    if (m && gone.has(m[1])) continue;
+    m = l.match(EDGE);
+    if (m && (gone.has(m[1]) || gone.has(m[2]))) continue;
+    if (/^\s*subgraph /.test(l)) { stack.push({ lines: [l], hasNode: false }); continue; }
+    if (/^\s*}\s*$/.test(l) && stack.length > 1) {
+      const sg = stack.pop();
+      sg.lines.push(l);
+      const parent = stack[stack.length - 1];
+      if (sg.hasNode) {
+        (Array.isArray(parent) ? parent : parent.lines).push(...sg.lines);
+        if (!Array.isArray(parent)) parent.hasNode = true;
+      }
+      continue;
+    }
+    const top = stack[stack.length - 1];
+    if (Array.isArray(top)) top.push(l);
+    else { top.lines.push(l); if (NODE.test(l)) top.hasNode = true; }
+  }
+  return stack[0].join("\n")
+    .replace(/bgcolor=green/g, 'bgcolor="#eef4ea"')
+    .replace(/bgcolor=orange/g, 'bgcolor="#fbf3e4"')
+    .replace(/fillcolor=pink/g, "fillcolor=white")
+    .replace(/fillcolor=red/g, 'fillcolor="#fde0d9"')
+    .replace(/fillcolor=lightblue/g, 'fillcolor="#dbe6ff"');
+}
+
+HeapView.init({ editor, simplify: simplifyFA });
 
 (async () => {
   await loadExamples();

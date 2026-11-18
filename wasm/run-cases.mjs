@@ -17,7 +17,8 @@ export function clean(lines) {
   const out = [];
   let verdict = "unknown";
   for (const raw of lines) {
-    const l = raw.replace(/\x1b\[[0-9;]*m/g, "");
+    // "#58:~n": register #58 holds the C variable n (wasm/patches/forester-var-names.patch)
+    const l = raw.replace(/\x1b\[[0-9;]*m/g, "").replace(/(#\d+):~/g, "$1:");
     if (/The program is SAFE\./.test(l)) verdict = "safe";
     if (!l.endsWith(" [-fa]") || l.includes("[internal location]")) continue;
     out.push(l.slice(0, -" [-fa]".length));

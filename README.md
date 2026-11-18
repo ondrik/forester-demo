@@ -27,6 +27,12 @@ whose LLVM front-end works with LLVM 14, and the patches in `wasm/patches/`:
 - `forester-llvm.patch`: treat `char *` like `void *` when a `malloc`'d block gets its type; keep
   pointer-typed temporaries in the stack frame so the nodes they point to are not garbage; support `i8`
   constants and Boolean xor; recognise `__VERIFIER_nondet_int`; fix the nesting of a CMake macro.
+- `forester-var-names.patch`: label the registers that hold C variables with those variables' names
+  (from `llvm.dbg.value`, prefixed by `~`), so heap graphs and notes show `n` rather than an empty name.
+
+The playground shows the heap graphs that Forester writes (`playground/heapview.js`, drawn with
+[viz.js](https://github.com/mdaines/viz-js)): one per step of the error trace with `print-trace`, and
+one per call of `__VERIFIER_plot("name")`. By default it hides the stack slots of unnamed temporaries.
 
 Rebuild after changing a program or a story:
 

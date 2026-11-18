@@ -9,7 +9,7 @@
       "verdict": "safe",
       "errors": 0,
       "output": [],
-      "seconds": 0.256
+      "seconds": 0.247
     },
     "list-of-lists": {
       "command": "forester list-of-lists.c",
@@ -20,7 +20,7 @@
         "list-of-lists.c:37:9: note: free (#35)",
         "list-of-lists.c:37:9: error: garbage detected"
       ],
-      "seconds": 0.044
+      "seconds": 0.021
     },
     "skiplist-fixed": {
       "command": "forester skiplist-fixed.c",
@@ -28,7 +28,7 @@
       "verdict": "safe",
       "errors": 0,
       "output": [],
-      "seconds": 0.31
+      "seconds": 0.298
     },
     "skiplist": {
       "command": "forester skiplist.c",
@@ -36,10 +36,10 @@
       "verdict": "bug",
       "errors": 1,
       "output": [
-        "skiplist.c:55:32: note: #82 = *#81",
+        "skiplist.c:55:32: note: #82:n = *#81",
         "skiplist.c:55:32: error: dereferenced value is not a valid reference [(undef)]"
       ],
-      "seconds": 0.031
+      "seconds": 0.025
     },
     "tree-destroy-fixed": {
       "command": "forester tree-destroy-fixed.c",
@@ -47,7 +47,7 @@
       "verdict": "safe",
       "errors": 0,
       "output": [],
-      "seconds": 0.229
+      "seconds": 0.164
     },
     "tree-destroy": {
       "command": "forester tree-destroy.c",
@@ -58,7 +58,7 @@
         "tree-destroy.c:39:19: note: #51 = *#50",
         "tree-destroy.c:39:19: error: dereferenced value is not a valid reference [(int)0]"
       ],
-      "seconds": 0.021
+      "seconds": 0.023
     },
     "tree-dsw-fixed": {
       "command": "forester tree-dsw-fixed.c",
@@ -66,7 +66,7 @@
       "verdict": "safe",
       "errors": 0,
       "output": [],
-      "seconds": 0.26
+      "seconds": 0.27
     },
     "tree-dsw": {
       "command": "forester tree-dsw.c",
@@ -77,7 +77,7 @@
         "tree-dsw.c:43:17: note: *#53 = #52",
         "tree-dsw.c:43:17: error: garbage detected"
       ],
-      "seconds": 0.022
+      "seconds": 0.024
     },
     "tree-stack-fixed": {
       "command": "forester tree-stack-fixed.c",
@@ -85,7 +85,7 @@
       "verdict": "safe",
       "errors": 0,
       "output": [],
-      "seconds": 0.065
+      "seconds": 0.057
     },
     "tree-stack": {
       "command": "forester tree-stack.c",
@@ -93,10 +93,10 @@
       "verdict": "bug",
       "errors": 1,
       "output": [
-        "tree-stack.c:59:16: note: #73 = &#58-><anon_item>",
+        "tree-stack.c:59:16: note: #73 = &#58:n-><anon_item>",
         "tree-stack.c:59:16: error: dereferenced value is not a valid reference [(undef)]"
       ],
-      "seconds": 0.019
+      "seconds": 0.026
     }
   }
 }
